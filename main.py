@@ -44,6 +44,10 @@ def extract_info(url: str) -> dict:
         "skip_download": True,
         "noplaylist": True,
     }
+    
+    # Use cookies if available
+    if os.path.exists("cookies.txt"):
+        ydl_opts["cookiefile"] = "cookies.txt"
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         info = ydl.extract_info(url, download=False)
         return {
@@ -69,6 +73,10 @@ def download_media(url: str, fmt: str, task_id: str):
         "noplaylist": True,
         "merge_output_format": "mp4" if fmt == "video" else None,
     }
+
+    # Use cookies if available
+    if os.path.exists("cookies.txt"):
+        ydl_opts["cookiefile"] = "cookies.txt"
 
     if fmt == "audio":
         ydl_opts.update({
