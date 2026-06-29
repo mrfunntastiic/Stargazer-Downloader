@@ -25,7 +25,7 @@ tasks: dict = {}
 
 # Self-hosted Cobalt instance (localhost:9001 = Docker)
 COBALT_BASE = "http://127.0.0.1:9001"
-COBALT_API = f"{COBALT_BASE}/api/json"
+COBALT_API = f"{COBALT_BASE}/"
 
 
 def cleanup_old_files(max_age_seconds: int = 600):
