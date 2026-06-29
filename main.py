@@ -94,8 +94,8 @@ def _cobalt_fetch(url: str, is_audio: bool = False) -> dict:
         "vQuality": "1080",
     }).encode("utf-8")
     try:
-        req = urllib.request.Request(COBALT_API, data=data, headers=headers, method="POST", timeout=30)
-        with urllib.request.urlopen(req) as resp:
+        req = urllib.request.Request(COBALT_API, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as resp:
             res = json.loads(resp.read().decode())
     except Exception as e:
         raise Exception(f"Cobalt request: {e}")
