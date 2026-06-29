@@ -43,6 +43,7 @@ def extract_info(url: str) -> dict:
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+        "format": "best",
     }
     
     # Use cookies if available
@@ -89,7 +90,7 @@ def download_media(url: str, fmt: str, task_id: str):
         })
     else:
         ydl_opts.update({
-            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/best[ext=mp4]/best",
+            "format": "bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio/best",
         })
 
     def progress_hook(d):
