@@ -1,0 +1,11 @@
+__pycache__/
+venv/
+env/
+.env
+downloads/
+*.mp3
+*.mp4
+*.webm
+*.m4a
+*.part
+*.ytdl
