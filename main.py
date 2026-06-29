@@ -23,8 +23,8 @@ templates = Jinja2Templates(directory="templates")
 
 tasks: dict = {}
 
-# Self-hosted Cobalt instance (localhost:9000 = Docker)
-COBALT_API = "http://127.0.0.1:9000/"
+# Self-hosted Cobalt instance (localhost:9001 = Docker)
+COBALT_API = "http://127.0.0.1:9001/"
 
 
 def cleanup_old_files(max_age_seconds: int = 600):
