@@ -1,7 +1,6 @@
 import os
 import uuid
 import asyncio
-import json
 import time
 import re
 import urllib.request
@@ -23,26 +22,27 @@ templates = Jinja2Templates(directory="templates")
 
 tasks: dict = {}
 
-COBALT_API = "https://api.cobalt.tools/"
+# ── Config: shared yt-dlp options ─────────────────────────────---
 
-
-def cleanup_old_files(max_age_seconds: int = 600):
-    now = time.time()
-    for f in DOWNLOAD_DIR.iterdir():
-        if f.is_file() and (now - f.stat().st_mtime) > max_age_seconds:
-            f.unlink(missing_ok=True)
-
-
-# ── Metadata (yt-dlp → page scrape) ──────────────────────────────
-
-def _try_ytdlp_extract(url: str) -> dict | None:
-    import yt_dlp
-    ydl_opts = {
-        "quiet": True, "no_warnings": True, "skip_download": True,
-        "noplaylist": True, "format": None,
+def _ytdlp_base_opts() -> dict:
+    """Base options for yt-dlp — always tries OAuth2 for YouTube."""
+    opts = {
+        "quiet": True,
+        "no_warnings": True,
+        "noplaylist": True,
+        "username": "oauth2",
+        "password": "",
     }
     if os.path.exists("cookies.txt"):
-        ydl_opts["cookiefile"] = "cookies.txt"
+        opts["cookiefile"] = "cookies.txt"
+    return opts
+
+
+# ── Metadata extract ──────────────────────────────────────────────
+
+def extract_info(url: str) -> dict:
+    import yt_dlp
+    ydl_opts = {**_ytdlp_base_opts(), "skip_download": True, "format": None}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(url, download=False)
@@ -51,96 +51,63 @@ def _try_ytdlp_extract(url: str) -> dict | None:
                 "thumbnail": info.get("thumbnail", ""),
                 "duration": info.get("duration", 0),
                 "uploader": info.get("uploader", "Unknown"),
+                "url": url,
+                "formats_available": True,
             }
-    except Exception:
-        return None
-
-
-def _scrape_metadata(url: str) -> dict:
-    try:
-        req = urllib.request.Request(url, headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
-        })
-        with urllib.request.urlopen(req, timeout=10) as resp:
-            html = resp.read().decode("utf-8", errors="ignore")
-        title = ""
-        thumb = ""
-        m = re.search(r'<meta\s+property="og:title"\s+content="([^"]+)"', html)
-        if m:
-            title = m.group(1)
-        else:
-            m = re.search(r"<title>([^<]+)", html)
-            if m:
-                title = m.group(1).strip()
-        m = re.search(r'<meta\s+property="og:image"\s+content="([^"]+)"', html)
-        if m:
-            thumb = m.group(1)
-        return {"title": title or "Video", "thumbnail": thumb, "duration": 0, "uploader": ""}
-    except Exception:
-        return {"title": "Video", "thumbnail": "", "duration": 0, "uploader": ""}
-
-
-# ── Cobalt API ────────────────────────────────────────────────────
-
-def _cobalt_fetch(url: str, is_audio: bool = False) -> dict:
-    headers = {
-        "Accept": "application/json",
-        "Content-Type": "application/json",
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
-        "Origin": "https://cobalt.tools",
-        "Referer": "https://cobalt.tools/",
-    }
-    body = {"url": url}
-    if is_audio:
-        body["downloadMode"] = "audio"
-        body["audioFormat"] = "mp3"
-    else:
-        body["downloadMode"] = "auto"
-        body["videoQuality"] = "1080"
-    data = json.dumps(body).encode("utf-8")
-    try:
-        req = urllib.request.Request(COBALT_API, data=data, headers=headers, method="POST")
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            res = json.loads(resp.read().decode())
-    except urllib.request.HTTPError as e:
-        error_body = e.read().decode() if e.fp else str(e)
-        raise Exception(f"Cobalt HTTP {e.code}: {error_body}")
     except Exception as e:
-        raise Exception(f"Cobalt request: {e}")
+        # Fallback: quick scrape for title/thumb
+        try:
+            req = urllib.request.Request(
+                url,
+                headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36"},
+            )
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                html = resp.read().decode("utf-8", errors="ignore")
+            title = ""
+            thumb = ""
+            m = re.search(r'<meta\s+property="og:title"\s+content="([^"]+)"', html)
+            if m:
+                title = m.group(1)
+            else:
+                m = re.search(r"<title>([^<]+)", html)
+                if m:
+                    title = m.group(1).strip()
+            m = re.search(r'<meta\s+property="og:image"\s+content="([^"]+)"', html)
+            if m:
+                thumb = m.group(1)
+            return {
+                "title": title or "Video",
+                "thumbnail": thumb,
+                "duration": 0,
+                "uploader": "",
+                "url": url,
+                "formats_available": True,
+            }
+        except Exception:
+            raise HTTPException(400, f"Failed to fetch info: {e}")
 
-    status = res.get("status")
-    if status == "error":
-        raise Exception(res.get("error", {}).get("code", "Cobalt error"))
-    if status == "picker":
-        return res["picker"][0]
-    return res
 
+# ── Download ──────────────────────────────────────────────────────
 
-def extract_info(url: str) -> dict:
-    result = _try_ytdlp_extract(url)
-    if result:
-        return {**result, "url": url, "formats_available": True}
-    scraped = _scrape_metadata(url)
-    return {**scraped, "url": url, "formats_available": True}
-
-
-# ── Downloaders: yt-dlp and Cobalt ────────────────────────────────
-
-def _download_via_ytdlp(url: str, fmt: str, task_id: str) -> bool:
+def download_media(url: str, fmt: str, task_id: str):
     import yt_dlp
+
+    tasks[task_id] = {"status": "starting", "progress": 0, "filename": None, "error": None}
+
     output_template = str(DOWNLOAD_DIR / f"{task_id}_%(title)s.%(ext)s")
     ydl_opts = {
-        "outtmpl": output_template, "quiet": True, "no_warnings": True,
-        "noplaylist": True, "merge_output_format": "mp4" if fmt == "video" else None,
+        **_ytdlp_base_opts(),
+        "outtmpl": output_template,
+        "merge_output_format": "mp4" if fmt == "video" else None,
     }
-    if os.path.exists("cookies.txt"):
-        ydl_opts["cookiefile"] = "cookies.txt"
 
     if fmt == "audio":
         ydl_opts.update({
             "format": "bestaudio/best",
             "postprocessors": [{
-                "key": "FFmpegExtractAudio", "preferredcodec": "mp3", "preferredquality": "192",
+                "key": "FFmpegExtractAudio",
+                "preferredcodec": "mp3",
+                "preferredquality": "192",
             }],
         })
     else:
@@ -166,80 +133,23 @@ def _download_via_ytdlp(url: str, fmt: str, task_id: str) -> bool:
             if f.name.startswith(task_id):
                 tasks[task_id]["filename"] = f.name
                 tasks[task_id]["status"] = "done"
-                return True
+                tasks[task_id]["progress"] = 100
+                return
         tasks[task_id]["error"] = "yt-dlp finished but file not found"
-        return False
     except Exception as e:
-        tasks[task_id]["error"] = f"yt-dlp: {e}"
-        return False
+        tasks[task_id]["error"] = str(e)
 
-
-def _download_via_cobalt(url: str, fmt: str, task_id: str) -> bool:
-    try:
-        is_audio = fmt == "audio"
-        cobalt_res = _cobalt_fetch(url, is_audio)
-        download_url = cobalt_res.get("url")
-        if not download_url:
-            tasks[task_id]["error"] = "Cobalt: no download URL in response"
-            return False
-
-        ext = "mp3" if is_audio else "mp4"
-        # Determine filename from response
-        filename = cobalt_res.get("filename", "") or cobalt_res.get("title", "")
-        if not filename:
-            filename = f"video_{task_id}.{ext}"
-        else:
-            filename = filename.replace("/", "_")
-            if not filename.endswith(f".{ext}"):
-                filename += f".{ext}"
-        filename = f"{task_id}_{filename}"
-        dest = DOWNLOAD_DIR / filename
-
-        tasks[task_id]["status"] = "downloading"
-        tasks[task_id]["progress"] = 0
-
-        req = urllib.request.Request(download_url, headers={"User-Agent": "Mozilla/5.0"})
-        with urllib.request.urlopen(req, timeout=300) as r:
-            total = int(r.headers.get("Content-Length", 0))
-            downloaded = 0
-            with open(dest, "wb") as f:
-                while True:
-                    chunk = r.read(65536)
-                    if not chunk:
-                        break
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    if total > 0:
-                        tasks[task_id]["progress"] = round(downloaded / total * 100, 1)
-                    tasks[task_id]["status"] = "downloading"
-
-        tasks[task_id]["filename"] = filename
-        tasks[task_id]["status"] = "done"
-        tasks[task_id]["progress"] = 100
-        return True
-    except Exception as e:
-        tasks[task_id]["error"] = f"Cobalt: {e}"
-        return False
-
-
-# ── Master download ──────────────────────────────────────────────
-
-def download_media(url: str, fmt: str, task_id: str):
-    tasks[task_id] = {"status": "starting", "progress": 0, "filename": None, "error": None}
-
-    # Step 1: try yt-dlp
-    if _download_via_ytdlp(url, fmt, task_id):
-        return
-
-    # Step 2: try Cobalt
-    if _download_via_cobalt(url, fmt, task_id):
-        return
-
-    # Both failed
     if tasks[task_id]["status"] != "done":
         tasks[task_id]["status"] = "error"
-        if not tasks[task_id]["error"]:
-            tasks[task_id]["error"] = "All download methods failed"
+
+
+# ── Cleanup old files ────────────────────────────────────────────
+
+def cleanup_old_files(max_age_seconds: int = 600):
+    now = time.time()
+    for f in DOWNLOAD_DIR.iterdir():
+        if f.is_file() and (now - f.stat().st_mtime) > max_age_seconds:
+            f.unlink(missing_ok=True)
 
 
 # ── Routes ────────────────────────────────────────────────────────
@@ -255,12 +165,9 @@ async def get_info(request: Request):
     url = body.get("url", "").strip()
     if not url:
         raise HTTPException(400, "URL required")
-    try:
-        loop = asyncio.get_event_loop()
-        info = await loop.run_in_executor(None, extract_info, url)
-        return JSONResponse(info)
-    except Exception as e:
-        raise HTTPException(400, f"Failed to fetch info: {e}")
+    loop = asyncio.get_event_loop()
+    info = await loop.run_in_executor(None, extract_info, url)
+    return JSONResponse(info)
 
 
 @app.post("/api/download")
