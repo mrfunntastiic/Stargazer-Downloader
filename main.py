@@ -43,6 +43,7 @@ def extract_info(url: str) -> dict:
         "no_warnings": True,
         "skip_download": True,
         "noplaylist": True,
+        "format": None,  # Jangan filter format sama sekali saat get info
     }
     
     # Use cookies if available
