@@ -23,7 +23,7 @@ templates = Jinja2Templates(directory="templates")
 
 tasks: dict = {}
 
-COBALT_API = "https://api.cobalt.tools/api/json"
+COBALT_API = "https://api.cobalt.tools/"
 
 
 def cleanup_old_files(max_age_seconds: int = 600):
@@ -86,23 +86,29 @@ def _cobalt_fetch(url: str, is_audio: bool = False) -> dict:
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
-        "User-Agent": "Stargazer-Downloader/1.0",
     }
-    data = json.dumps({
-        "url": url,
-        "isAudioOnly": is_audio,
-        "vQuality": "1080",
-    }).encode("utf-8")
+    body = {"url": url}
+    if is_audio:
+        body["downloadMode"] = "audio"
+        body["audioFormat"] = "mp3"
+    else:
+        body["downloadMode"] = "auto"
+        body["videoQuality"] = "1080"
+    data = json.dumps(body).encode("utf-8")
     try:
         req = urllib.request.Request(COBALT_API, data=data, headers=headers, method="POST")
         with urllib.request.urlopen(req, timeout=30) as resp:
             res = json.loads(resp.read().decode())
+    except urllib.request.HTTPError as e:
+        error_body = e.read().decode() if e.fp else str(e)
+        raise Exception(f"Cobalt HTTP {e.code}: {error_body}")
     except Exception as e:
         raise Exception(f"Cobalt request: {e}")
 
-    if res.get("status") == "error":
-        raise Exception(res.get("text", "Cobalt error"))
-    if res.get("status") == "picker":
+    status = res.get("status")
+    if status == "error":
+        raise Exception(res.get("error", {}).get("code", "Cobalt error"))
+    if status == "picker":
         return res["picker"][0]
     return res
 
