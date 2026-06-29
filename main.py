@@ -99,8 +99,8 @@ def _cobalt_fetch(url: str, is_audio: bool = False) -> dict:
 
     data = json.dumps(body).encode("utf-8")
     try:
-        req = urllib.request.Request(COBALT_API, data=data, headers=headers, method="POST", timeout=30)
-        with urllib.request.urlopen(req) as resp:
+        req = urllib.request.Request(COBALT_API, data=data, headers=headers, method="POST")
+        with urllib.request.urlopen(req, timeout=30) as resp:
             res = json.loads(resp.read().decode())
     except urllib.request.HTTPError as e:
         error_body = e.read().decode() if e.fp else str(e)
