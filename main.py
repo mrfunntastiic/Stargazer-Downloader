@@ -86,6 +86,9 @@ def _cobalt_fetch(url: str, is_audio: bool = False) -> dict:
     headers = {
         "Accept": "application/json",
         "Content-Type": "application/json",
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36",
+        "Origin": "https://cobalt.tools",
+        "Referer": "https://cobalt.tools/",
     }
     body = {"url": url}
     if is_audio:
